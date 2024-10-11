@@ -95,7 +95,7 @@ public class FileEndings
                     ".tgz",
                 };
                 break;
-            case FolderNames.Ducuments:
+            case FolderNames.Documents:
                 endings = new string[]
                 {
                     ".txt",

@@ -4,7 +4,7 @@ public enum FolderNames
 {
     General,
     Compressed,
-    Ducuments,
+    Documents,
     Music,
     Programs,
     Video
