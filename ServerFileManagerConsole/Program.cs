@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+﻿using System.Diagnostics;
 
 namespace ServerFileManagerConsole;
 
@@ -22,52 +22,59 @@ static internal class Program
     {
         var folders = Enum.GetValues(typeof(FolderNames)).Cast<FolderNames>().ToList();
         var currentDirectory = Directory.GetCurrentDirectory();
-        var currentExecutable = Assembly.GetExecutingAssembly().Location;
-        var currentExecutableName = Path.GetFileName(currentExecutable);
 
         var fileEndingsList = folders.Select(folder => new FileEndings(folder)).ToList();
 
         var allFiles = Directory.GetFiles(currentDirectory)
-            .Where(f => Path.GetFileName(f) != currentExecutableName)
+            .Where(f => !IsCurrentExecutable(f))
             .ToList();
 
         var totalFiles = allFiles.Count;
         var processedFiles = 0;
 
-        do
-        {
-            var filesMovedInIteration = 0;
-
+        while (allFiles.Count > 0)
             foreach (var file in allFiles.ToList())
-                if (!folders.Any(folder => file.StartsWith(Path.Combine(currentDirectory, folder.ToString()))))
+            {
+                if (folders.Any(folder => file.StartsWith(Path.Combine(currentDirectory, folder.ToString()))))
                 {
-                    processedFiles++;
-                    var percentage = processedFiles * 100 / totalFiles;
-                    AnimateTitle($"Moving files... {percentage}%");
+                    allFiles.Remove(file);
+                    continue;
+                }
 
-                    var fileMoved = false;
+                processedFiles++;
+                var percentage = processedFiles * 100 / totalFiles;
+                AnimateTitle($"Moving files... {percentage}%");
 
-                    foreach (var fileEndings in fileEndingsList.Where(fileEndings => fileEndings.endings.Any(ending =>
-                                 file.EndsWith(ending, StringComparison.OrdinalIgnoreCase) ||
-                                 file.EndsWith("." + ending, StringComparison.OrdinalIgnoreCase))))
+                var fileMoved = false;
+
+                foreach (var fileEndings in fileEndingsList)
+                    if (fileEndings.endings.Any(ending =>
+                            file.EndsWith(ending, StringComparison.OrdinalIgnoreCase) ||
+                            file.EndsWith("." + ending, StringComparison.OrdinalIgnoreCase)))
                     {
                         MoveFileToFolder(file, fileEndings.folder.ToString());
                         fileMoved = true;
-                        filesMovedInIteration++;
                         allFiles.Remove(file);
                         break;
                     }
 
-                    if (!fileMoved)
-                    {
-                        MoveFileToFolder(file, FolderNames.General.ToString());
-                        filesMovedInIteration++;
-                        allFiles.Remove(file);
-                    }
+                if (!fileMoved)
+                {
+                    MoveFileToFolder(file, FolderNames.General.ToString());
+                    allFiles.Remove(file);
                 }
-        } while (allFiles.Count > 0);
+            }
 
         SLogger.Log("All files have been moved to their respective folders.");
+    }
+
+    private static bool IsCurrentExecutable(string filePath)
+    {
+        var currentExecutablePath = Process.GetCurrentProcess().MainModule.FileName;
+        return string.Equals(
+            Path.GetFullPath(filePath),
+            Path.GetFullPath(currentExecutablePath),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static void AnimateTitle(string title)
@@ -79,10 +86,17 @@ static internal class Program
     {
         try
         {
+            if (IsCurrentExecutable(sourceFilePath))
+            {
+                SLogger.Log("This executable file will not be moved.");
+                return;
+            }
+
             var fileName = Path.GetFileName(sourceFilePath);
             var destinationPath = Path.Combine(destinationFolder, fileName);
 
-            if (!Directory.Exists(destinationFolder)) Directory.CreateDirectory(destinationFolder);
+            if (!Directory.Exists(destinationFolder))
+                Directory.CreateDirectory(destinationFolder);
 
             if (File.Exists(destinationPath))
                 File.Delete(destinationPath);
@@ -97,7 +111,8 @@ static internal class Program
 
     private static void CreateAllFolders()
     {
-        foreach (FolderNames folder in Enum.GetValues(typeof(FolderNames))) CreateFolder(folder);
+        foreach (FolderNames folder in Enum.GetValues(typeof(FolderNames)))
+            CreateFolder(folder);
     }
 
     private static void CreateFolder(FolderNames folder)
