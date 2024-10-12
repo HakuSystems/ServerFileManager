@@ -1,10 +1,10 @@
-﻿using Serilog.Events;
+﻿using System.Reflection;
 
 namespace ServerFileManagerConsole;
 
-static class Program
+static internal class Program
 {
-    static void Main(string[] args)
+    private static void Main(string[] args)
     {
         Console.Title = "Server File Manager";
         CreateAllFolders();
@@ -20,76 +20,98 @@ static class Program
 
     private static void MoveFiles()
     {
-        var folders = (FolderNames[])Enum.GetValues(typeof(FolderNames));
-        var fileEndings = new FileEndings[folders.Length];
-        for (int i = 0; i < folders.Length; i++)
-        {
-            fileEndings[i] = new FileEndings(folders[i]);
-        }
+        var folders = Enum.GetValues(typeof(FolderNames)).Cast<FolderNames>().ToList();
+        var currentDirectory = Directory.GetCurrentDirectory();
+        var currentExecutable = Assembly.GetExecutingAssembly().Location;
+        var currentExecutableName = Path.GetFileName(currentExecutable);
 
-        var allFiles = Directory.GetFiles(Directory.GetCurrentDirectory());
-        foreach (var f in allFiles)
+        var fileEndingsList = folders.Select(folder => new FileEndings(folder)).ToList();
+
+        var allFiles = Directory.GetFiles(currentDirectory)
+            .Where(f => Path.GetFileName(f) != currentExecutableName)
+            .ToList();
+
+        var totalFiles = allFiles.Count;
+        var processedFiles = 0;
+
+        do
         {
-            var percentage = (Array.IndexOf(allFiles, f) + 1) * 100 / allFiles.Length;
-            AnimateTitle($"Moving files... {percentage}%");
-            foreach (var fileEnding in fileEndings)
-            {
-                if (fileEnding.endings.Contains(Path.GetExtension(f)))
+            var filesMovedInIteration = 0;
+
+            foreach (var file in allFiles.ToList())
+                if (!folders.Any(folder => file.StartsWith(Path.Combine(currentDirectory, folder.ToString()))))
                 {
-                    var percentage2 = (Array.IndexOf(fileEndings, fileEnding) + 1) * 100 / fileEndings.Length;
-                    AnimateTitle($"Moving files... {percentage}% | {percentage2}%");
-                    MoveFileToFolder(f, fileEnding.folder.ToString());
+                    processedFiles++;
+                    var percentage = processedFiles * 100 / totalFiles;
+                    AnimateTitle($"Moving files... {percentage}%");
+
+                    var fileMoved = false;
+
+                    foreach (var fileEndings in fileEndingsList.Where(fileEndings => fileEndings.endings.Any(ending =>
+                                 file.EndsWith(ending, StringComparison.OrdinalIgnoreCase) ||
+                                 file.EndsWith("." + ending, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        MoveFileToFolder(file, fileEndings.folder.ToString());
+                        fileMoved = true;
+                        filesMovedInIteration++;
+                        allFiles.Remove(file);
+                        break;
+                    }
+
+                    if (!fileMoved)
+                    {
+                        MoveFileToFolder(file, FolderNames.General.ToString());
+                        filesMovedInIteration++;
+                        allFiles.Remove(file);
+                    }
                 }
-            }
-        }
+        } while (allFiles.Count > 0);
+
         SLogger.Log("All files have been moved to their respective folders.");
     }
 
-    private static void AnimateTitle(string s)
+    private static void AnimateTitle(string title)
     {
-        Console.Title = s;
-        Console.Title = "Server File Manager";
+        Console.Title = title;
     }
 
-    private static void MoveFileToFolder(string s, string toString)
+    private static void MoveFileToFolder(string sourceFilePath, string destinationFolder)
     {
         try
         {
-            var fileInfo = new FileInfo(s);
-            if (File.Exists($"{toString}\\{fileInfo.Name}"))
-                File.Delete($"{toString}\\{fileInfo.Name}");
+            var fileName = Path.GetFileName(sourceFilePath);
+            var destinationPath = Path.Combine(destinationFolder, fileName);
 
-            File.Move(s, $"{toString}\\{fileInfo.Name}");
+            if (!Directory.Exists(destinationFolder)) Directory.CreateDirectory(destinationFolder);
+
+            if (File.Exists(destinationPath))
+                File.Delete(destinationPath);
+
+            File.Move(sourceFilePath, destinationPath);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!(ex is FileNotFoundException))
         {
-            if (ex is FileNotFoundException)
-                return;
             SLogger.LogError(ex.Message);
         }
     }
 
     private static void CreateAllFolders()
     {
-        FolderNames[] folders = (FolderNames[])Enum.GetValues(typeof(FolderNames));
-        foreach (var folder in folders)
-        {
-            CreateFolder(folder);
-        }
+        foreach (FolderNames folder in Enum.GetValues(typeof(FolderNames))) CreateFolder(folder);
     }
 
     private static void CreateFolder(FolderNames folder)
     {
         try
         {
-            if (Directory.Exists(folder.ToString())) return;
-            Directory.CreateDirectory(folder.ToString());
-            SLogger.Log($"Folder {folder} has been created.");
+            if (!Directory.Exists(folder.ToString()))
+            {
+                Directory.CreateDirectory(folder.ToString());
+                SLogger.Log($"Folder {folder} has been created.");
+            }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!(ex is FileNotFoundException))
         {
-            if (ex is FileNotFoundException)
-                return;
             SLogger.LogError(ex.Message);
         }
     }
